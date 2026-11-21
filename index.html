@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blockify</title>
+<style>
+:root{--bg:#1d1f23;--fg:#e8e8e8;--card:#2a2d33;--accent:#5fbf4a}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;padding:16px}
+main{max-width:900px;margin:auto}
+h1{margin:0 0 4px}p{color:#aaa;margin-top:0}
+.drop{border:2px dashed #555;border-radius:10px;padding:28px;text-align:center;cursor:pointer;background:var(--card)}
+.drop.over{border-color:var(--accent)}
+.row{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px}
+.card{background:var(--card);border-radius:10px;padding:14px;flex:1;min-width:260px;text-align:center}
+canvas{image-rendering:pixelated;background:#111;border-radius:6px;max-width:100%}
+label{display:block;margin:10px 0 4px;font-size:14px}
+input[type=range]{width:100%}
+button{background:var(--accent);color:#102;border:0;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;margin-top:12px}
+</style></head><body><main>
+<h1>Blockify</h1>
+<p>Turn any image into a blocky pixel character and download it as a 64×64 Minecraft-format skin.</p>
+<div class="drop" id="drop">Drop an image here or click to choose<input id="file" type="file" accept="image/*" hidden></div>
+<div class="row">
+ <div class="card"><h3>Character</h3><canvas id="prev" width="320" height="512"></canvas></div>
+ <div class="card"><h3>Skin texture (64×64)</h3><canvas id="tex" width="64" height="64" style="width:256px;height:256px"></canvas>
+  <label>Colors per channel: <span id="qv">6</span></label><input id="q" type="range" min="2" max="16" value="6">
+  <label>Focus X: <span id="fxv">50</span>%</label><input id="fx" type="range" min="0" max="100" value="50">
+  <label>Focus Y: <span id="fyv">50</span>%</label><input id="fy" type="range" min="0" max="100" value="50">
+  <button id="dl">Download skin.png</button></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let img=null;
+const tex=$('tex'),tc=tex.getContext('2d',{willReadFrequently:true});
+const prev=$('prev'),pc=prev.getContext('2d');
+const grid=document.createElement('canvas');grid.width=16;grid.height=32;
+const gc=grid.getContext('2d',{willReadFrequently:true});
+function sampleGrid(){
+  const fx=$('fx').value/100,fy=$('fy').value/100;
+  const s=Math.max(16/img.width,32/img.height),w=img.width*s,h=img.height*s;
+  gc.clearRect(0,0,16,32);gc.imageSmoothingQuality='high';
+  gc.drawImage(img,-(w-16)*fx,-(h-32)*fy,w,h);
+  const d=gc.getImageData(0,0,16,32),n=+$('q').value,st=255/(n-1);
+  for(let i=0;i<d.data.length;i+=4){for(let k=0;k<3;k++)d.data[i+k]=Math.round(d.data[i+k]/st)*st;d.data[i+3]=255}
+  return d;
+}
+function px(d,x,y){const i=(y*16+x)*4;return [d.data[i],d.data[i+1],d.data[i+2]]}
+function fill(x,y,w,h,c,sh=1){tc.fillStyle=`rgb(${c.map(v=>v*sh|0)})`;tc.fillRect(x,y,w,h)}
+function avg(d,x0,y0,w,h){let s=[0,0,0];for(let y=y0;y<y0+h;y++)for(let x=x0;x<x0+w;x++){const p=px(d,x,y);s[0]+=p[0];s[1]+=p[1];s[2]+=p[2]}const n=w*h;return s.map(v=>v/n)}
+// part: net box, front tex pos, back tex pos, grid region
+function part(d,net,front,back,gx,gy,w,h){
+  const a=avg(d,gx,gy,w,h);
+  fill(net[0],net[1],net[2],net[3],a,.8);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    fill(front[0]+x,front[1]+y,1,1,px(d,gx+x,gy+y));
+    fill(back[0]+(w-1-x),back[1]+y,1,1,px(d,gx+x,gy+y),.7);
+  }
+}
+function render(){
+  if(!img)return;
+  const d=sampleGrid();tc.clearRect(0,0,64,64);
+  part(d,[0,0,32,16],[8,8],[24,8],4,0,8,8);        // head
+  part(d,[16,16,24,16],[20,20],[32,20],4,8,8,12);   // torso
+  part(d,[40,16,16,16],[44,20],[52,20],0,8,4,12);   // right arm
+  part(d,[32,48,16,16],[36,52],[44,52],12,8,4,12);  // left arm
+  part(d,[0,16,16,16],[4,20],[12,20],4,20,4,12);    // right leg
+  part(d,[16,48,16,16],[20,52],[28,52],8,20,4,12);  // left leg
+  // preview built from the texture itself
+  pc.clearRect(0,0,320,512);pc.imageSmoothingEnabled=false;
+  const S=20,ox=0;
+  const blit=(fx,fy,w,h,gx,gy)=>pc.drawImage(tex,fx,fy,w,h,gx*S,gy*S,w*S,h*S);
+  blit(8,8,8,8,4,0);blit(20,20,8,12,4,8);blit(44,20,4,12,0,8);blit(36,52,4,12,12,8);
+  blit(4,20,4,12,4,20);blit(20,52,4,12,8,20);
+}
+function load(f){const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{img=i;render()};i.src=u}
+$('file').onchange=e=>e.target.files[0]&&load(e.target.files[0]);
+$('drop').onclick=()=>$('file').click();
+$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('over')};
+$('drop').ondragleave=()=>$('drop').classList.remove('over');
+$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('over');e.dataTransfer.files[0]&&load(e.dataTransfer.files[0])};
+for(const [id,v] of [['q','qv'],['fx','fxv'],['fy','fyv']])$(id).oninput=()=>{$(v).textContent=$(id).value;render()};
+$('dl').onclick=()=>{if(!img)return;const a=document.createElement('a');a.download='skin.png';a.href=tex.toDataURL();a.click()};
+</script></main></body></html>
